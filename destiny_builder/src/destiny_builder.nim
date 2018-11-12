@@ -34,6 +34,17 @@ proc main() = # required because if clientID is a global, it's not gcsafe to use
         await req.respond(Http200, "<!DOCTYPE html>\n" & $body, headers)
     
     proc serveLogin(req: Request) {.async, gcsafe.} =
+        # TODO: write generic function for parsing query arguments into a struct
+        for arg in req.url.query.split '&':
+            let kv = arg.split('=', 2)
+            if kv.len != 2:
+                continue
+            let
+                key = kv[0].decodeUrl(true)
+                val = kv[1].decodeUrl(true)
+            case key:
+                of "code":
+                    echo val
         await req.respond(Http501, "not implemented")
 
     proc serveFileNotFound(req: Request) {.async, gcsafe.} =
