@@ -1,7 +1,7 @@
-import asynchttpserver, asyncdispatch, strformat
+import asynchttpserver, asyncdispatch, strformat, strutils
 from htmlgen import nil
 from xmldom import escapeXml
-from uri import encodeUrl
+from uri import encodeUrl, decodeURL
 from os import getEnv
 from system import quit, QuitFailure
 
@@ -36,20 +36,26 @@ proc main() = # required because if clientID is a global, it's not gcsafe to use
     proc serveLogin(req: Request) {.async, gcsafe.} =
         await req.respond(Http501, "not implemented")
 
-    proc serve404(req: Request) {.async, gcsafe.} =
-        echo req.url.path
+    proc serveFileNotFound(req: Request) {.async, gcsafe.} =
         await req.respond(Http404, "not found")
+    
+    proc serveMethodNotAllowed(req: Request) {.async, gcsafe.} =
+        await req.respond(Http405, "method not allowed")
 
     proc serve(req: Request) {.async, gcsafe.} =
         # FIXME: use case expression once https://github.com/nim-lang/Nim/issues/9655 is fixed
         var handler: proc(req: Request): Future[void]
-        case req.url.path:
-            of "/":
-                handler = serveIndex
-            of "/login":
-                handler = serveLogin
+        case req.reqMethod:
+            of HttpGet:
+                case req.url.path:
+                    of "/":
+                        handler = serveIndex
+                    of "/login":
+                        handler = serveLogin
+                    else:
+                        handler = serveFileNotFound
             else:
-                handler = serve404
+                handler = serveMethodNotAllowed
         await handler(req)
     
     let server = newAsyncHttpServer()
