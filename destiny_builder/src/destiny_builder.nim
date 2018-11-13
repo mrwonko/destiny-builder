@@ -1,4 +1,4 @@
-import asynchttpserver, asyncdispatch, strformat, strutils
+import asynchttpserver, asyncdispatch, strformat, strutils, httpclient
 from htmlgen import nil
 from xmldom import escapeXml
 from uri import encodeUrl, decodeURL
@@ -6,7 +6,9 @@ from os import getEnv
 from system import quit, QuitFailure
 
 const
-    envClientID = "CLIENT_ID"
+    envClientId = "CLIENT_ID"
+    envClientSecret = "CLIENT_SECRET"
+    envApiKey = "API_KEY"
     # frontendJS = staticRead "frontend.js"
 
 type
@@ -28,33 +30,53 @@ proc parseLoginQueryArguments(query: string): loginQueryArguments = # TODO: allo
                 res.code = val
     return res
 
-proc main() = # required because if clientID is a global, it's not gcsafe to use
-    let clientID = getEnv(envClientID)
-    let urlClientID = encodeURL clientID
+proc main() = # required because if clientId is a global, it's not gcsafe to use
+    let
+        clientId = getEnv envClientId
+        urlClientId = encodeURL clientId
+        clientSecret = getEnv envClientSecret
+        urlClientSecret = encodeURL clientSecret
+        apiKey = getEnv envApiKey
+        urlApiKey = encodeURL apiKey
     
-    if clientID == "":
-        echo &"{envClientID} not set"
+    if clientId == "":
+        echo &"{envClientId} not set"
         quit(QuitFailure)
-
-    proc serveIndex(req: Request) {.async, gcsafe.} =
-        let body = htmlgen.html(
+    if clientSecret == "":
+        echo &"{envClientSecret} not set"
+        quit(QuitFailure)
+    if apiKey == "":
+        echo &"{envApiKey} not set"
+        quit(QuitFailure)
+    
+    let
+        indexHeaders = newHttpHeaders([("Content-Type","text/html")])
+        indexContent = "<!DOCTYPE html>\n" & $htmlgen.html(
             htmlgen.head(
-                htmlgen.title(
-                    escapeXml "Destiny Builder</title>injected"
-                )
+                htmlgen.title("Destiny Builder")
             ),
             htmlgen.body(
                 htmlgen.p(
-                    htmlgen.a(href = &"https://www.bungie.net/en/oauth/authorize?client_id={urlClientID}&response_type=code", "login")
+                    htmlgen.a(href = &"https://www.bungie.net/en/oauth/authorize?client_id={urlClientId}&response_type=code", "login")
                 )
             )
         )
-        let headers = newHttpHeaders([("Content-Type","text/html")])
-        await req.respond(Http200, "<!DOCTYPE html>\n" & $body, headers)
+
+    proc serveIndex(req: Request) {.async, gcsafe.} =
+        await req.respond(Http200, indexContent, indexHeaders)
     
+    let loginClient = newAsyncHttpClient()
+    loginClient.headers = newHttpHeaders({
+        "Content-Type": "application/x-www-form-urlencoded",
+    })
     proc serveLogin(req: Request) {.async, gcsafe.} =
-        let args = parseLoginQueryArguments(req.url.query)
-        echo &"login code: {args.code}"
+        let
+            args = parseLoginQueryArguments(req.url.query)
+            urlCode = encodeUrl(args.code, true)
+            reqBody = &"grant_type=authorization_code&code={urlCode}&client_id={urlClientId}&client_secret={urlClientSecret}"
+            resp = await loginClient.request(url = "https://www.bungie.net/platform/app/oauth/token/", httpMethod = HttpPost, body = reqBody)
+            respBody = await resp.body
+        echo &"request body: {reqBody}, request headers: {loginClient.headers}, response status: {resp.status}, response body: {respBody}"
         await req.respond(Http501, "not implemented")
 
     proc serveFileNotFound(req: Request) {.async, gcsafe.} =
