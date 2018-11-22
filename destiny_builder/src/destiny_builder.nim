@@ -1,4 +1,4 @@
-import asynchttpserver, asyncdispatch, strformat, strutils, httpclient
+import asynchttpserver, asyncdispatch, strformat, strutils, httpclient, json
 from htmlgen import nil
 from xmldom import escapeXml
 from uri import encodeUrl, decodeURL
@@ -76,7 +76,21 @@ proc main() = # required because if clientId is a global, it's not gcsafe to use
             reqBody = &"grant_type=authorization_code&code={urlCode}&client_id={urlClientId}&client_secret={urlClientSecret}"
             resp = await loginClient.request(url = "https://www.bungie.net/platform/app/oauth/token/", httpMethod = HttpPost, body = reqBody)
             respBody = await resp.body
-        echo &"request body: {reqBody}, request headers: {loginClient.headers}, response status: {resp.status}, response body: {respBody}"
+        if resp.status != Http200:
+            echo &"login failed with status {resp.status} and body: {respBody}"
+            await req.respond(Http403, "login failed")
+            return
+        type OAuthToken = object # FIXME: I'd like to use tuple, but `to` errors then
+            access_token: string
+            token_type: string
+            expires_in: int
+            refresh_token: string
+            refresh_expires_in: int
+            membership_id: string
+        let
+            parsedJson = parseJson(respBody)
+            parsedToken = parsedJson.to OAuthToken
+        echo &"parsed token: {parsedToken}"
         await req.respond(Http501, "not implemented")
 
     proc serveFileNotFound(req: Request) {.async, gcsafe.} =
